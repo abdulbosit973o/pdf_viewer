@@ -1,125 +1,185 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_pdfview/flutter_pdfview.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:pdf_viewer/config/theme/app_theme.dart';
+import 'package:pdf_viewer/core/extensions/custom_functions.dart';
+import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 
-void main() {
-  runApp(const MyApp());
-}
+void main() => runApp(MyApp());
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  // This widget is the root of your application.
+class MyApp extends StatefulWidget {
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
-    );
-  }
+  _MyAppState createState() => _MyAppState();
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+class _MyAppState extends State<MyApp> {
+  late StreamSubscription _intentSub;
+  final _sharedFiles = <SharedMediaFile>[];
+  SharedMediaFile? pdf;
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
+  void initState() {
+    super.initState();
+    toggleNightMode(false);
+    // Ilova ochiq holatda yangi media kelganda ishlaydi
+    _intentSub = ReceiveSharingIntent.instance.getMediaStream().listen((value) {
+      setState(() {
+        _sharedFiles.clear();
+        _sharedFiles.addAll(value);
+      });
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+      _openPdfIfAvailable();
+    }, onError: (err) {
+      print("getIntentDataStream error: $err");
+    });
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+    // Ilova yopiq holatda kelgan media
+    ReceiveSharingIntent.instance.getInitialMedia().then((value) {
+      setState(() {
+        _sharedFiles.clear();
+        _sharedFiles.addAll(value);
+
+        // Intentni qayta ishlashni to‘xtatamiz
+        ReceiveSharingIntent.instance.reset();
+      });
+
+      _openPdfIfAvailable();
     });
   }
 
+  // PDF mavjud bo‘lsa, uni shu joyda ochish, aks holda boshqa ekran ochish
+  void _openPdfIfAvailable() {
+    if (_sharedFiles.isNotEmpty) {
+      for (var file in _sharedFiles) {
+        logD(file.toString());
+        if (file.type == SharedMediaType.file && file.path.endsWith(".pdf")) {
+          setState(() {
+            pdf = file; // PDF fayl yo‘lini saqlaymiz
+          });
+          return;
+        }
+      }
+    }
+    // Agar PDF bo‘lmasa, boshqa sahifa ochish
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (context) => Scaffold(
+        appBar: AppBar(title: Text("No PDF Found")),
+        body: Center(child: Text("Ulashilgan fayl PDF emas!")),
+      ),
+    ));
+  }
+
+  @override
+  void dispose() {
+    _intentSub.cancel();
+    super.dispose();
+  }
+
+  final Completer<PDFViewController> _controller =
+      Completer<PDFViewController>();
+  int? pages = 0;
+  int? currentPage = 0;
+  bool isReady = false;
+  String errorMessage = '';
+  bool _nightMode = false;
+  Icon? lightBulb;
+
+  void toggleNightMode(bool toggle) {
+    switch (toggle) {
+      case true:
+        setState(() {
+          _nightMode = false;
+          lightBulb = Icon(Icons.lightbulb_outline, color: Colors.white);
+        });
+        break;
+
+      case false:
+        setState(() {
+          _nightMode = true;
+          lightBulb = Icon(Icons.lightbulb_outline, color: Colors.yellow);
+        });
+        break;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
+    return ScreenUtilInit(
+        useInheritedMediaQuery: false,
+        designSize: MediaQuery.sizeOf(context),
+        builder: (context, child) {
+          return MaterialApp(
+            themeMode: ThemeMode.system,
+            darkTheme: AppTheme.darkTheme,
+            theme: AppTheme.theme,
+            home: Scaffold(
+              floatingActionButton: FloatingActionButton(
+                  child: lightBulb,
+                  onPressed: () => toggleNightMode(_nightMode)),
+              appBar: AppBar(
+                title: Text(pdf == null
+                    ? 'PDF Viewer App'
+                    : pdf!.thumbnail ?? pdf!.message ?? 'PDF Viewer'),
+                actions: [
+                  Text(
+                    "$currentPage/$pages",
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(fontSize: 16),
+                  )
+                ],
+              ),
+              body: pdf != null
+                  ? Stack(
+                      children: [
+                        PDFView(
+                          filePath: pdf!.path,
+                          enableSwipe: true,
+                          swipeHorizontal: false,
+                          autoSpacing: false,
+                          pageFling: false,
+                          nightMode: currentPage == 10,
+                          onRender: (totalPages) {
+                            setState(() {
+                              pages = totalPages;
+                              isReady = true;
+                            });
+                          },
+                          onError: (error) {
+                            print(error.toString());
+                          },
+                          onPageError: (page, error) {
+                            print('$page: ${error.toString()}');
+                          },
+                          onViewCreated: (PDFViewController pdfViewController) {
+                            _controller.complete(pdfViewController);
+                          },
+                          onPageChanged: (int? page, int? total) {
+                            setState(() {
+                              currentPage = page;
+                            });
+                            print('page change: $page/$total');
+                          },
+                        ),
+                      ],
+                    )
+                  : Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: <Widget>[
+                          Text("Shared files:"),
+                          if (_sharedFiles.isNotEmpty)
+                            Text(_sharedFiles.map((f) => f.path).join("\n")),
+                          if (_sharedFiles.isEmpty)
+                            Text("Hali hech qanday fayl ulashilmadi."),
+                        ],
+                      ),
+                    ),
             ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
-    );
+          );
+        });
   }
 }
